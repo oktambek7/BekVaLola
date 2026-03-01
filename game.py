@@ -1,1315 +1,1122 @@
-import streamlit as st
-import pandas as pd
-import altair as alt
-from datetime import datetime, timedelta
-from decimal import Decimal
-import snowflake.connector
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Bek & Lola – Educational children's game analytics dashboard. Real-time player stats, engagement metrics, and growth insights.">
+  <title>Bek & Lola — Analytics Portfolio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-# ----------------------------
-# Page
-# ----------------------------
-st.set_page_config(
-    page_title="Bek va Lola • Analytics",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-alt.data_transformers.disable_max_rows()
-
-# ----------------------------
-# Theme
-# ----------------------------
-COLORS = {
-    "bg": "#F6F8FC",
-    "card": "#FFFFFF",
-    "border": "rgba(15,23,42,0.14)",
-    "text": "#0F172A",
-    "muted": "#64748B",
-
-    "accent": "#2563EB",
-    "android": "#16A34A",
-    "ios": "#2563EB",
-    "other": "#94A3B8",
-
-    "new_users": "#F59E0B",   # soft orange
-    "sessions": "#2563EB",    # blue
-    "minigame": "#EF4444",    # red
-    "purple": "#7C3AED",
-
-    "neon": "rgba(37,99,235,0.16)",
-    "neon2": "rgba(124,58,237,0.12)",
-}
-
-# Put your local logo here (recommended)
-# LOGO_PATH = "https://play.google.com/store/apps/details?id=com.unitedsoft.bekvalola"
-# Or a URL (optional fallback)
-LOGO_URL = "https://play-lh.googleusercontent.com/nQ1jBuyOk6UG2AEMwhHPigxlqgFhrzOE1ag3tXFAqFP_PhuRGNNkprI8xLgeK-cPgpAuZo0YDblHfWDZNyjzDw" 
-
-
-# ----------------------------
-# Altair clean light theme (transparent background; Streamlit card shows bg)
-# ----------------------------
-def _clean_light_theme():
-    return {
-        "config": {
-            "background": "transparent",
-            "view": {"stroke": "transparent"},
-            "axis": {
-                "labelColor": COLORS["muted"],
-                "titleColor": COLORS["muted"],
-                "gridColor": "rgba(15,23,42,0.06)",
-                "domainColor": "rgba(15,23,42,0.18)",
-                "tickColor": "rgba(15,23,42,0.18)",
-                "labelFontSize": 11,
-                "titleFontSize": 11,
-            },
-            "legend": {"labelColor": COLORS["muted"], "titleColor": COLORS["muted"]},
-            "title": {"color": COLORS["text"]},
-        }
+    :root {
+      --ink: #0d1117;
+      --ink-soft: #1c2333;
+      --muted: #6b7280;
+      --line: rgba(255,255,255,0.07);
+      --white: #ffffff;
+      --off-white: #f8f6f1;
+      --amber: #f59e0b;
+      --amber-light: #fbbf24;
+      --teal: #14b8a6;
+      --rose: #f43f5e;
+      --slate: #94a3b8;
+      --card: rgba(255,255,255,0.04);
+      --card-border: rgba(255,255,255,0.09);
     }
 
-alt.themes.register("clean_light", _clean_light_theme)
-alt.themes.enable("clean_light")
-
-
-# ----------------------------
-# CSS (Mutolaa-like clean light + FIX all issues)
-# ----------------------------
-st.markdown(
-    f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-html, body, [class*="css"] {{
-  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
-  color: {COLORS["text"]} !important;
-  font-weight: 400 !important;
-}}
-
-.stApp {{
-  background: {COLORS["bg"]} !important;
-  color: {COLORS["text"]} !important;
-}}
-
-.block-container {{
-  max-width: 1320px;
-  padding: 0.7rem 1.6rem 2rem 1.6rem;
-}}
-
-#MainMenu, footer {{ visibility: hidden; }}
-
-[data-testid="stHeader"] {{
-  background: transparent !important;
-  border-bottom: 0 !important;
-  box-shadow: none !important;
-}}
-
-.muted {{ color: {COLORS["muted"]} !important; }}
-
-/* Hide sidebar */
-[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {{
-  display: none !important;
-}}
-
-/* ===============================
-   FIX 1: SELECT DROPDOWNS - Make text visible
-   =============================== */
-[data-baseweb="select"] > div {{
-  background-color: #FFFFFF !important;
-  border: 1px solid rgba(15,23,42,0.18) !important;
-  border-radius: 12px !important;
-  box-shadow: none !important;
-}}
-
-/* Fix select placeholder and value text */
-[data-baseweb="select"] [data-baseweb="select"] > div > div {{
-  color: #0F172A !important;
-}}
-
-[data-baseweb="select"] input {{
-  color: #0F172A !important;
-  -webkit-text-fill-color: #0F172A !important;
-}}
-
-/* Selected value text */
-[data-baseweb="select"] > div > div {{
-  color: #0F172A !important;
-}}
-
-/* All text inside select */
-.stSelectbox label,
-.stSelectbox [data-baseweb="select"] *:not(svg) {{
-  color: #0F172A !important;
-}}
-
-/* Fix dropdown arrow */
-[data-baseweb="select"] svg {{
-  color: #0F172A !important;
-  fill: #0F172A !important;
-}}
-
-/* Focus states */
-[data-baseweb="select"] > div:focus-within {{
-  border-color: rgba(37,99,235,0.45) !important;
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.14) !important;
-}}
-
-/* Dropdown menu */
-ul[role="listbox"] {{
-  background: #FFFFFF !important;
-  border: 1px solid rgba(15,23,42,0.14) !important;
-  border-radius: 12px !important;
-}}
-ul[role="listbox"] li {{
-  color: #0F172A !important;
-}}
-ul[role="listbox"] li:hover {{
-  background: rgba(37,99,235,0.08) !important;
-}}
-
-/* ✅ Fix: selected / highlighted option background (remove black strip) */
-ul[role="listbox"] li[aria-selected="true"],
-div[role="option"][aria-selected="true"]{{
-  background: rgba(37,99,235,0.10) !important;
-  color: #0F172A !important;
-}}
-ul[role="listbox"] li[aria-selected="true"] *,
-div[role="option"][aria-selected="true"] *{{
-  color: #0F172A !important;
-}}
-
-/* highlighted item while moving with mouse/keyboard */
-ul[role="listbox"] li[data-highlighted="true"],
-div[role="option"][data-highlighted="true"]{{
-  background: rgba(37,99,235,0.08) !important;
-  color: #0F172A !important;
-}}
-
-
-/* ===============================
-   FIX 2: DATEPICKER - Calendar stays dark with white numbers
-   =============================== */
-
-/* Date input field */
-[data-baseweb="datepicker"] > div,
-.stDateInput > div > div {{
-  background-color: #FFFFFF !important;
-  border: 1px solid rgba(15,23,42,0.18) !important;
-  border-radius: 12px !important;
-  box-shadow: none !important;
-}}
-
-/* Date input text - BLACK when selected */
-[data-baseweb="datepicker"] input,
-.stDateInput input {{
-  color: #0F172A !important;
-  -webkit-text-fill-color: #0F172A !important;
-  background: transparent !important;
-  font-weight: 500 !important;
-}}
-
-/* Calendar icon */
-[data-baseweb="datepicker"] svg,
-.stDateInput svg {{
-  color: #0F172A !important;
-  fill: #0F172A !important;
-}}
-
-/* Focus state */
-[data-baseweb="datepicker"] > div:focus-within,
-.stDateInput > div > div:focus-within {{
-  border-color: rgba(37,99,235,0.45) !important;
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.14) !important;
-}}
-
-/* ========= CALENDAR POPUP - DARK BACKGROUND, WHITE TEXT ========= */
-
-/* Calendar popup container - DARK */
-[data-baseweb="calendar"],
-div[role="dialog"],
-div[aria-label="Calendar"] {{
-  background: #1E293B !important;
-  color: #FFFFFF !important;
-  border: 1px solid rgba(255,255,255,0.1) !important;
-  border-radius: 14px !important;
-  box-shadow: 0 12px 28px rgba(0,0,0,0.3) !important;
-}}
-
-/* Calendar header - DARK */
-[data-baseweb="calendar"] header {{
-  background: #1E293B !important;
-  color: #FFFFFF !important;
-}}
-
-/* Month/Year dropdowns in header - WHITE */
-[data-baseweb="calendar"] [data-baseweb="select"] > div {{
-  background: #334155 !important;
-  border-color: rgba(255,255,255,0.1) !important;
-}}
-
-[data-baseweb="calendar"] [data-baseweb="select"] * {{
-  color: #FFFFFF !important;
-}}
-
-/* Navigation arrows - WHITE */
-[data-baseweb="calendar"] button[aria-label*="previous"],
-[data-baseweb="calendar"] button[aria-label*="next"] {{
-  color: #FFFFFF !important;
-}}
-
-[data-baseweb="calendar"] button svg {{
-  color: #FFFFFF !important;
-  fill: #FFFFFF !important;
-}}
-
-/* Weekday labels - WHITE */
-[data-baseweb="calendar"] [role="row"] span,
-[data-baseweb="calendar"] th {{
-  color: #94A3B8 !important;
-  font-weight: 500 !important;
-}}
-
-/* Day numbers - WHITE */
-[data-baseweb="calendar"] td button,
-[data-baseweb="calendar"] [role="button"] {{
-  background: transparent !important;
-  color: #FFFFFF !important;
-  font-weight: 500 !important;
-}}
-
-/* Hover state - lighter background */
-[data-baseweb="calendar"] td button:hover,
-[data-baseweb="calendar"] [role="button"]:hover {{
-  background: rgba(255,255,255,0.1) !important;
-  color: #FFFFFF !important;
-}}
-
-/* Selected day - BLUE with WHITE text */
-[data-baseweb="calendar"] td button[aria-selected="true"],
-[data-baseweb="calendar"] [role="button"][aria-selected="true"] {{
-  background: #2563EB !important;
-  color: #FFFFFF !important;
-  border-radius: 999px !important;
-}}
-
-/* Today's date - outlined */
-[data-baseweb="calendar"] td button[aria-label*="today"],
-[data-baseweb="calendar"] [role="button"][aria-current="date"] {{
-  border: 2px solid #3B82F6 !important;
-  color: #FFFFFF !important;
-}}
-
-/* Disabled days - gray */
-[data-baseweb="calendar"] td button:disabled,
-[data-baseweb="calendar"] [role="button"]:disabled {{
-  color: #475569 !important;
-  opacity: 0.5 !important;
-}}
-
-/* Date range display - WHITE */
-.stDateInput [data-testid="stMarkdownContainer"] {{
-  color: #0F172A !important;
-}}
-
-/* ===============================
-   FIX 3: CHARTS - Prevent overflow
-   =============================== */
-
-/* Cards / charts container */
-.card {{
-  background: {COLORS["card"]} !important;
-  border: 1px solid {COLORS["border"]} !important;
-  border-radius: 18px;
-  box-shadow: 0 10px 24px rgba(15,23,42,0.06);
-  overflow: hidden !important;
-}}
-
-.card:hover,
-[data-testid="stVegaLiteChart"]:hover {{
-  box-shadow:
-    0 0 0 1px rgba(37,99,235,0.10),
-    0 0 16px {COLORS["neon"]},
-    0 0 22px {COLORS["neon2"]};
-    transform: none !important;
-  transition: all 160ms ease;
-}}
-
-/* Chart container - prevent overflow */
-[data-testid="stVegaLiteChart"] {{
-  background: {COLORS["card"]} !important;
-  border: 1px solid {COLORS["border"]} !important;
-  border-radius: 18px;
-  padding: 16px !important;
-  box-shadow: 0 6px 18px rgba(15,23,42,0.05);
-  overflow: hidden !important;
-}}
-
-[data-testid="stVegaLiteChart"] > div {{
-  background: transparent !important;
-  overflow: hidden !important;
-}}
-
-/* Ensure charts don't overflow */
-[data-testid="stVegaLiteChart"] canvas,
-[data-testid="stVegaLiteChart"] svg {{
-  max-width: 100% !important;
-  height: auto !important;
-}}
-
-/* ---------- Header centered ---------- */
-.header {{
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  gap: 14px;
-  margin: 6px 0 14px 0;
-}}
-.header img {{
-  width: 62px;
-  height: 62px;
-  border-radius: 16px;
-  border: 1px solid rgba(15,23,42,0.10);
-  box-shadow: 0 10px 24px rgba(15,23,42,0.08);
-}}
-.h-title {{
-  font-family: 'Poppins', 'Inter', sans-serif !important;
-  font-size: 2.2rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}}
-
-/* ---------- KPI ---------- */
-.kpi-grid {{
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 14px;
-}}
-.kpi {{
-  padding: 14px;
-}}
-.kpi-head {{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin-bottom: 8px;
-}}
-.kpi-ico {{
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size: 18px;
-  background: rgba(37,99,235,0.10);
-  color: #2563EB;
-}}
-.kpi-ico.purple {{ background: rgba(124,58,237,0.10); color:#7C3AED; }}
-.kpi-ico.orange {{ background: rgba(245,158,11,0.12); color:#F59E0B; }}
-.kpi-ico.green {{ background: rgba(22,163,74,0.10); color:#16A34A; }}
-
-.kpi-label {{
-  font-size: 0.95rem;
-  color: {COLORS["muted"]};
-  font-weight: 500;
-}}
-.kpi-value {{
-  font-size: 2.0rem;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}}
-
-/* ---------- Section header row (title left, filters right) ---------- */
-.sec-row {{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap: 12px;
-  margin-top: 18px;
-  margin-bottom: 8px;
-}}
-.sec-title {{
-  font-size: 1.12rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  margin: 0;
-}}
-.sec-sub {{
-  color: {COLORS["muted"]};
-  font-weight: 400;
-  font-size: 0.95rem;
-  margin: 4px 0 0 0;
-}}
-
-/* ---------- Legend card ---------- */
-.legend-card {{
-  padding: none !important;
-  border: none !important;
-  box-shadow: none !important;
-}}
-.stat-row {{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap: 12px;
-  padding: 10px 8px;
-  border-bottom: 1px solid rgba(15,23,42,0.08);
-}}
-.stat-row:last-child {{
-  border-bottom: none;
-  padding-bottom: 8px;
-}}
-.dot {{
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  margin-right: 10px;
-  margin-top: 5px;
-  flex: 0 0 auto;
-  box-shadow: 0 0 0 3px rgba(15,23,42,0.04);
-}}
-.stat-left {{
-  display:flex;
-  align-items:flex-start;
-  gap: 10px;
-  line-height: 1.15;
-}}
-.stat-label {{
-  font-weight: 600;
-}}
-.stat-sub {{
-  color: {COLORS["muted"]};
-  font-weight: 400;
-  font-size: 0.9rem;
-  margin-top: 3px;
-}}
-.stat-right {{
-  font-weight: 600;
-  text-align:right;
-  white-space: nowrap;
-}}
-
-/* ---------- Retention metrics visibility ---------- */
-[data-testid="stMetricValue"] {{
-  color: {COLORS["text"]} !important;
-  font-weight: 650 !important;
-}}
-[data-testid="stMetricLabel"] {{
-  color: {COLORS["muted"]} !important;
-  font-weight: 450 !important;
-}}
-
-/* ---------- Top games list ---------- */
-.rank-card {{
-  padding: 10px 12px;
-}}
-.rank-row {{
-  display:grid;
-  grid-template-columns: 52px 1fr 120px;
-  gap: 10px;
-  align-items:center;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(15,23,42,0.08);
-}}
-.rank-row:last-child {{
-  border-bottom: none;
-}}
-.rank-badge {{
-  font-size: 1.2rem;
-  font-weight: 650;
-}}
-.rank-name {{
-  font-weight: 500;
-}}
-.rank-val {{
-  text-align:right;
-  font-weight: 600;
-}}
-
-@media (max-width: 980px) {{
-  .kpi-grid {{ grid-template-columns: 1fr; }}
-  .rank-row {{ grid-template-columns: 52px 1fr 100px; }}
-}}
-
-/* Transparent glass background for metrics */
-[data-testid="stMetric"] {{
-  background: rgba(255, 255, 255, 0.5) !important;
-  backdrop-filter: blur(10px) !important;
-  -webkit-backdrop-filter: blur(10px) !important;
-  border: 1px solid rgba(15, 23, 42, 0.08) !important;
-  border-radius: 16px !important;
-  padding: 16px !important;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04) !important;
-}}
-
-[data-testid="stMetric"]:hover {{
-  background: rgba(255, 255, 255, 0.65) !important;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08) !important;
-  transition: all 0.2s ease !important;
-}}
-
-/* Smooth animations for charts and cards */
-[data-testid="stVegaLiteChart"],
-.card,
-[data-testid="stMetric"] {{
-  animation: fadeInUp 0.6s ease-out;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}}
-
-@keyframes fadeInUp {{
-  from {{
-    opacity: 0;
-    transform: translateY(20px);
-  }}
-  to {{
-    opacity: 1;
-    transform: translateY(0);
-  }}
-}}
-
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ----------------------------
-# Secrets
-# ----------------------------
-if "snowflake" not in st.secrets:
-    st.error("Snowflake credentials topilmadi. Iltimos, secrets ni sozlang.")
-    st.stop()
-
-# ----------------------------
-# Mini-games map
-# ----------------------------
-MINIGAME_NAMES = {
-    "AstroBek": "Astrobek",
-    "Badantarbiya": "Badantarbiya",
-    "HiddeAndSikLolaRoom": "Berkinmachoq",
-    "Market": "Bozor",
-    "Shapes": "Shakllar",
-    "NumbersShape": "Raqamlar",
-    "Words": "So'zlar",
-    "MapMatchGame": "Xarita",
-    "FindHiddenLetters": "Yashirin harflar",
-    "RocketGame": "Raketa",
-    "TacingLetter": "Harflar yozish",
-    "Baroqvoy": "Baroqvoy",
-    "Ballons": "Sharlar",
-    "HygieneTeath": "Tish tozalash",
-    "HygieneHand": "Qo'l yuvish",
-    "BasketBall": "Basketbol",
-    "FootBall": "Futbol",
-}
-
-def get_minigame_name(name):
-    if name is None:
-        return "Noma'lum"
-    return MINIGAME_NAMES.get(name, name)
-
-# ----------------------------
-# Snowflake (logic unchanged)
-# ----------------------------
-@st.cache_resource
-def get_connection():
-    return snowflake.connector.connect(
-        user=st.secrets["snowflake"]["user"],
-        password=st.secrets["snowflake"]["password"],
-        account=st.secrets["snowflake"]["account"],
-        warehouse=st.secrets["snowflake"]["warehouse"],
-        database=st.secrets["snowflake"]["database"],
-        schema=st.secrets["snowflake"]["schema"],
-    )
-
-def run_query(query: str) -> pd.DataFrame:
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(query)
-    columns = [desc[0] for desc in cur.description]
-    data = cur.fetchall()
-    df = pd.DataFrame(data, columns=columns)
-
-    for col in df.columns:
-        if df[col].dtype == object:
-            if df[col].apply(lambda x: isinstance(x, Decimal)).any():
-                df[col] = df[col].apply(lambda x: float(x) if isinstance(x, Decimal) else x)
-            try:
-                numeric_col = pd.to_numeric(df[col], errors="coerce")
-                if not numeric_col.isna().all():
-                    df[col] = numeric_col
-            except Exception:
-                pass
-    return df
-
-GAME_ID = 181330318
-DB = "UNITY_ANALYTICS_GCP_US_CENTRAL1_UNITY_ANALYTICS_PDA.SHARES"
-
-
-# ----------------------------
-# Header (centered logo + title)
-# ----------------------------
-# ----------------------------
-# Header (centered logo + title)
-# ----------------------------
-st.markdown(f'''
-<div class="header">
-    <img src="{LOGO_URL}" style="width:62px;height:62px;border-radius:16px;border:1px solid rgba(15,23,42,0.10);box-shadow:0 10px 24px rgba(15,23,42,0.08);" />
-    <div class="h-title">Bek va Lola</div>
-</div>
-''', unsafe_allow_html=True)
-
-
-# ----------------------------
-# KPI (3 cards)
-# ----------------------------
-try:
-    total_users = run_query(f"""
-        SELECT COUNT(DISTINCT USER_ID) as TOTAL
-        FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-        WHERE GAME_ID = {GAME_ID}
-    """)
-    kpi_total_users = int(total_users["TOTAL"][0])
-except Exception:
-    kpi_total_users = None
-
-# Defaults for initial view
-default_start = datetime.now() - timedelta(days=30)
-default_end = datetime.now()
-
-try:
-    new_users_total_df = run_query(f"""
-        SELECT COUNT(DISTINCT USER_ID) as TOTAL_NEW
-        FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-        WHERE GAME_ID = {GAME_ID}
-        AND PLAYER_START_DATE BETWEEN '{default_start.strftime("%Y-%m-%d")}' AND '{default_end.strftime("%Y-%m-%d")}'
-    """)
-    kpi_new_users = int(new_users_total_df["TOTAL_NEW"][0])
-except Exception:
-    kpi_new_users = None
-
-try:
-    end_dt = datetime.now()
-    start_dt = end_dt - timedelta(days=7)
-    sess_kpi_df = run_query(f"""
-        SELECT COUNT(DISTINCT SESSION_ID) as TOTAL_SESS
-        FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-        WHERE GAME_ID = {GAME_ID}
-        AND EVENT_DATE BETWEEN '{start_dt.strftime("%Y-%m-%d")}' AND '{end_dt.strftime("%Y-%m-%d")}'
-    """)
-    kpi_sessions = int(sess_kpi_df["TOTAL_SESS"][0])
-except Exception:
-    kpi_sessions = None
-
-st.markdown(
-    f"""
-<div class="kpi-grid">
-  <div class="kpi card">
-    <div class="kpi-head">
-      <div class="kpi-ico green">👥</div>
-      <div class="kpi-label">Foydalanuvchilar</div>
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--ink);
+      color: var(--white);
+      overflow-x: hidden;
+    }
+
+    /* ─── NOISE TEXTURE OVERLAY ─────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.35;
+    }
+
+    /* ─── NAV ────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      z-index: 100;
+      padding: 22px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.4s;
+    }
+    nav.solid {
+      background: rgba(13, 17, 23, 0.9);
+      backdrop-filter: blur(20px);
+      padding: 16px 40px;
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-logo {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.35rem;
+      color: var(--white);
+      letter-spacing: 0.02em;
+    }
+    .nav-logo span { color: var(--amber); }
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 36px;
+    }
+    nav a {
+      color: var(--slate);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: color 0.25s;
+    }
+    nav a:hover { color: var(--white); }
+
+    /* ─── HERO ───────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 120px 40px 80px;
+      gap: 80px;
+    }
+    .hero-left { }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 100px;
+      padding: 6px 14px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 32px;
+    }
+    .hero-badge i { font-size: 0.65rem; }
+    .hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(3rem, 5vw, 5.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin-bottom: 28px;
+    }
+    .hero h1 em {
+      font-style: italic;
+      color: var(--amber);
+    }
+    .hero-desc {
+      font-size: 1.05rem;
+      color: var(--slate);
+      line-height: 1.75;
+      max-width: 480px;
+      margin-bottom: 44px;
+      font-weight: 300;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--amber);
+      color: var(--ink);
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 14px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.25s;
+      letter-spacing: 0.02em;
+    }
+    .btn-primary:hover {
+      background: var(--amber-light);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
+    }
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--card-border);
+      color: var(--slate);
+      font-weight: 500;
+      font-size: 0.9rem;
+      padding: 14px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.25s;
+    }
+    .btn-ghost:hover {
+      border-color: rgba(255,255,255,0.2);
+      color: var(--white);
+    }
+    .hero-right {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .hero-phone-wrap {
+      position: relative;
+    }
+    .hero-glow {
+      position: absolute;
+      width: 380px;
+      height: 380px;
+      background: radial-gradient(circle, rgba(245,158,11,0.18) 0%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .hero-img-main {
+      width: 280px;
+      border-radius: 24px;
+      box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--card-border);
+      animation: floatHero 5s ease-in-out infinite;
+      position: relative;
+      z-index: 2;
+    }
+    @keyframes floatHero {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-14px); }
+    }
+
+    /* Floating KPI cards on hero */
+    .hero-kpi {
+      position: absolute;
+      background: rgba(28, 35, 51, 0.95);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px 20px;
+      z-index: 3;
+      animation: floatHero 5s ease-in-out infinite;
+    }
+    .hero-kpi:nth-child(2) { animation-delay: -1.5s; }
+    .hero-kpi:nth-child(3) { animation-delay: -3s; }
+    .hero-kpi.pos-tl { top: 20px; left: -80px; }
+    .hero-kpi.pos-br { bottom: 40px; right: -90px; }
+    .hero-kpi .kpi-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.6rem;
+      color: var(--white);
+      line-height: 1;
+    }
+    .hero-kpi .kpi-lbl {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 4px;
+    }
+    .hero-kpi .kpi-trend {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: var(--teal);
+      margin-top: 6px;
+      font-weight: 600;
+    }
+
+    /* ─── SECTION BASE ───────────────────────────── */
+    section { padding: 100px 0; }
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 40px;
+    }
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--amber);
+      margin-bottom: 20px;
+    }
+    .section-label::before {
+      content: '';
+      display: block;
+      width: 20px;
+      height: 1px;
+      background: var(--amber);
+    }
+    h2.section-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2rem, 3.5vw, 3.2rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    h2.section-title em {
+      font-style: italic;
+      color: var(--amber);
+    }
+    .section-sub {
+      color: var(--slate);
+      font-size: 1rem;
+      line-height: 1.7;
+      max-width: 560px;
+      font-weight: 300;
+    }
+
+    /* ─── DIVIDER LINE ───────────────────────────── */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* ─── KPI METRICS ────────────────────────────── */
+    #stats { background: var(--ink-soft); }
+    .metrics-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: end;
+      margin-bottom: 60px;
+    }
+    .metrics-date {
+      text-align: right;
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .metric-cell {
+      background: var(--ink-soft);
+      padding: 40px 36px;
+      position: relative;
+      transition: background 0.3s;
+    }
+    .metric-cell:hover { background: rgba(255,255,255,0.04); }
+    .metric-cell .m-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+    }
+    .metric-cell .m-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 2.8rem;
+      line-height: 1;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .metric-cell .m-label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.5;
+      font-weight: 400;
+    }
+    .metric-cell .m-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      padding: 4px 10px;
+      border-radius: 100px;
+    }
+    .badge-up { background: rgba(20,184,166,0.15); color: var(--teal); }
+    .badge-info { background: rgba(148,163,184,0.1); color: var(--slate); }
+
+    /* Color variants */
+    .c-amber .m-icon { background: rgba(245,158,11,0.12); color: var(--amber); }
+    .c-amber .m-val { color: var(--amber); }
+    .c-teal .m-icon { background: rgba(20,184,166,0.12); color: var(--teal); }
+    .c-teal .m-val { color: var(--teal); }
+    .c-rose .m-icon { background: rgba(244,63,94,0.12); color: var(--rose); }
+    .c-rose .m-val { color: var(--rose); }
+    .c-white .m-icon { background: rgba(255,255,255,0.07); color: var(--white); }
+    .c-white .m-val { color: var(--white); }
+
+    /* ─── ABOUT / PROJECT DETAIL ─────────────────── */
+    .about-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+    .about-visual {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .about-visual img {
+      border-radius: 14px;
+      width: 100%;
+      aspect-ratio: 9/16;
+      object-fit: cover;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      transition: transform 0.4s;
+    }
+    .about-visual img:first-child {
+      grid-row: span 2;
+      margin-top: 40px;
+    }
+    .about-visual img:hover { transform: scale(1.03); }
+    .about-text { }
+    .tech-stack {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 36px;
+    }
+    .tech-pill {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--card-border);
+      padding: 6px 16px;
+      border-radius: 100px;
+      font-size: 0.78rem;
+      color: var(--slate);
+      letter-spacing: 0.04em;
+      font-weight: 500;
+    }
+    .about-facts {
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .fact-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .fact-row .fact-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .fact-row h4 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+    .fact-row p {
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ─── DASHBOARD EMBED ────────────────────────── */
+    #dashboard { background: var(--ink-soft); }
+    .dashboard-wrapper {
+      margin-top: 48px;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+      background: #fff;
+      position: relative;
+    }
+    .dashboard-topbar {
+      background: var(--ink);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+    .dashboard-url {
+      margin-left: 16px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 6px 16px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      flex: 1;
+      max-width: 460px;
+    }
+    .dashboard-topbar .live-badge {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--teal);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      background: var(--teal);
+      border-radius: 50%;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.4); }
+    }
+    .dashboard-wrapper iframe {
+      width: 100%;
+      height: 820px;
+      border: none;
+      display: block;
+    }
+
+    /* ─── SCREENSHOTS ────────────────────────────── */
+    .screenshots-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 48px;
+    }
+    .screenshot-card {
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      background: var(--ink-soft);
+      transition: all 0.35s;
+      cursor: pointer;
+      position: relative;
+    }
+    .screenshot-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+      border-color: rgba(255,255,255,0.15);
+    }
+    .screenshot-card img {
+      width: 100%;
+      display: block;
+    }
+    .screenshot-caption {
+      padding: 16px 20px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+
+    /* ─── FEATURES ───────────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-top: 60px;
+    }
+    .feature-item {
+      background: var(--ink-soft);
+      padding: 44px 36px;
+      transition: background 0.3s;
+    }
+    .feature-item:hover { background: rgba(255,255,255,0.03); }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      margin-bottom: 24px;
+    }
+    .feature-item h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    .feature-item p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* ─── ROLE / PORTFOLIO CONTEXT ───────────────── */
+    .role-section {
+      background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, transparent 60%);
+      border: 1px solid rgba(245,158,11,0.15);
+      border-radius: 20px;
+      padding: 60px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      margin-top: 60px;
+    }
+    .role-section h3 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 2.2rem;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .role-section h3 em { font-style: italic; color: var(--amber); }
+    .role-section p { color: var(--slate); font-size: 0.95rem; line-height: 1.75; }
+    .responsibility-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .responsibility-list li {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .resp-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--amber);
+      border-radius: 50%;
+      margin-top: 8px;
+      flex-shrink: 0;
+    }
+    .responsibility-list li span {
+      font-size: 0.88rem;
+      color: var(--slate);
+      line-height: 1.65;
+    }
+
+    /* ─── FOOTER ─────────────────────────────────── */
+    footer {
+      padding: 60px 40px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .footer-brand {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.2rem;
+    }
+    .footer-brand span { color: var(--amber); }
+    .footer-copy {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .footer-links {
+      display: flex;
+      gap: 20px;
+    }
+    .footer-links a {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--slate);
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: all 0.25s;
+    }
+    .footer-links a:hover {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+
+    /* ─── SCROLL ANIMATIONS ──────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+
+    /* ─── RESPONSIVE ─────────────────────────────── */
+    @media (max-width: 900px) {
+      nav ul { display: none; }
+      nav { padding: 18px 24px; }
+      nav.solid { padding: 14px 24px; }
+      .hero { grid-template-columns: 1fr; padding: 100px 24px 60px; gap: 60px; }
+      .hero h1 { font-size: 3rem; }
+      .hero-right { display: none; }
+      .metrics-grid { grid-template-columns: 1fr 1fr; }
+      .metric-cell:nth-child(5), .metric-cell:nth-child(6) { grid-column: span 1; }
+      .about-grid { grid-template-columns: 1fr; }
+      .about-visual { display: none; }
+      .features-grid { grid-template-columns: 1fr; }
+      .screenshots-row { grid-template-columns: 1fr 1fr; }
+      .role-section { grid-template-columns: 1fr; padding: 40px 28px; }
+      .metrics-header { grid-template-columns: 1fr; gap: 20px; }
+      .metrics-date { text-align: left; }
+      footer { flex-direction: column; gap: 24px; text-align: center; padding: 40px 24px; }
+      .container { padding: 0 24px; }
+      section { padding: 80px 0; }
+    }
+    @media (max-width: 540px) {
+      .metrics-grid { grid-template-columns: 1fr; }
+      .screenshots-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── NAV ──────────────────────────────────── -->
+  <nav id="nav">
+    <div class="nav-logo">Bek &amp; <span>Lola</span></div>
+    <ul>
+      <li><a href="#about">About</a></li>
+      <li><a href="#stats">Metrics</a></li>
+      <li><a href="#dashboard">Dashboard</a></li>
+      <li><a href="#role">My Role</a></li>
+    </ul>
+  </nav>
+
+  <!-- ─── HERO ─────────────────────────────────── -->
+  <div class="hero">
+    <div class="hero-left">
+      <div class="hero-badge">
+        <i class="fas fa-circle" style="color:var(--teal); font-size:0.5rem;"></i>
+        Live on Google Play · Uzbekistan
+      </div>
+      <h1>Analytics for <em>Bek &amp; Lola</em></h1>
+      <p class="hero-desc">
+        A children's educational game for Uzbek-speaking kids — tracking player growth, engagement, and learning outcomes through data analytics.
+      </p>
+      <div class="hero-actions">
+        <a href="https://play.google.com/store/apps/details?id=com.unitedsoft.bekvalola" class="btn-primary" target="_blank">
+          <i class="fab fa-google-play"></i> View on Play Store
+        </a>
+        <a href="#dashboard" class="btn-ghost">
+          <i class="fas fa-chart-bar"></i> Open Dashboard
+        </a>
+      </div>
     </div>
-    <div class="kpi-value">{f"{kpi_total_users:,}" if kpi_total_users is not None else "N/A"}</div>
-  </div>
-
-  <div class="kpi card">
-    <div class="kpi-head">
-      <div class="kpi-ico orange">✨</div>
-      <div class="kpi-label">Yangi foydalanuvchilar</div>
-    </div>
-    <div class="kpi-value">{f"{kpi_new_users:,}" if kpi_new_users is not None else "N/A"}</div>
-  </div>
-
-  <div class="kpi card">
-    <div class="kpi-head">
-      <div class="kpi-ico">📈</div>
-      <div class="kpi-label">Sessiyalar</div>
-    </div>
-    <div class="kpi-value">{f"{kpi_sessions:,}" if kpi_sessions is not None else "N/A"}</div>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ----------------------------
-# 1) Platform donut + legend
-# ----------------------------
-st.markdown(
-    """
-<div class="sec-row">
-  <div>
-    <div class="sec-title">📱 Platformalar</div>
-    <div class="sec-sub">Foydalanuvchilar taqsimoti</div>
-  </div>
-  <div></div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-try:
-    platform_df = run_query(f"""
-        SELECT
-            PLATFORM_GROUP AS PLATFORM,
-            SUM(USERS) AS USERS
-        FROM (
-            SELECT
-                CASE
-                    WHEN PLATFORM = 'ANDROID' THEN 'Android'
-                    WHEN PLATFORM = 'IOS' THEN 'iOS'
-                    ELSE 'Boshqalar'
-                END AS PLATFORM_GROUP,
-                COUNT(DISTINCT USER_ID) AS USERS
-            FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-            WHERE GAME_ID = {GAME_ID}
-            GROUP BY PLATFORM
-        )
-        GROUP BY PLATFORM_GROUP
-        ORDER BY USERS DESC
-    """)
-
-    if not platform_df.empty:
-        total = int(platform_df["USERS"].sum())
-        platform_df["PERCENT"] = (platform_df["USERS"] / total * 100).round(1)
-
-        CHART_H = 300
-        c_chart, c_nums = st.columns([1.25, 0.85], gap="large", vertical_alignment="center")
-
-        with c_chart:
-            donut = (
-                alt.Chart(platform_df)
-                .mark_arc(innerRadius=118, outerRadius=150, opacity=0.92)
-                .encode(
-                    theta=alt.Theta(field="USERS", type="quantitative"),
-                    color=alt.Color(
-                        field="PLATFORM",
-                        type="nominal",
-                        scale=alt.Scale(
-                            domain=["Android", "iOS", "Boshqalar"],
-                            range=[COLORS["android"], COLORS["ios"], COLORS["other"]],
-                        ),
-                        legend=None,
-                    ),
-                    tooltip=[
-                        alt.Tooltip("PLATFORM:N", title="Platforma"),
-                        alt.Tooltip("USERS:Q", title="Foydalanuvchilar", format=","),
-                        alt.Tooltip("PERCENT:Q", title="Ulush", format=".1f"),
-                    ],
-                )
-                .properties(height=CHART_H, padding={"top": 6, "left": 8, "right": 8, "bottom": 8})
-            )
-            st.altair_chart(donut, use_container_width=True)
-
-        with c_nums:
-            st.markdown('<div class="legend-card card" style="background: #FFFFFF; border: 1px solid rgba(15,23,42,0.14); border-radius: 18px; padding: 16px; box-shadow: 0 10px 24px rgba(15,23,42,0.06);">', unsafe_allow_html=True)
-
-            st.markdown(
-                f"""
-<div class="stat-row">
-  <div>
-    <div class="stat-left"><span class="dot" style="background:{COLORS["accent"]};"></span>
-      <span class="stat-label">Jami</span>
+    <div class="hero-right">
+      <div class="hero-phone-wrap">
+        <div class="hero-glow"></div>
+        <img
+          src="https://play-lh.googleusercontent.com/9vozB2WkdlaDlYTCL5J04rp_4FtbPQU60ukWGyrfizs9GF98wqsn23hke4bVPL9aVJeL9nseyLeTQZpqxbU2qXU"
+          alt="Bek & Lola app icon"
+          class="hero-img-main"
+        >
+        <div class="hero-kpi pos-tl">
+          <div class="kpi-val">26.6K</div>
+          <div class="kpi-lbl">Total Players</div>
+          <div class="kpi-trend"><i class="fas fa-arrow-trend-up"></i> Active</div>
+        </div>
+        <div class="hero-kpi pos-br">
+          <div class="kpi-val">5.17</div>
+          <div class="kpi-lbl">Avg. Sessions / DAU</div>
+          <div class="kpi-trend"><i class="fas fa-arrow-trend-up"></i> Engaged</div>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="stat-right">{total:,}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
 
-            for _, r in platform_df.iterrows():
-                p = r["PLATFORM"]
-                u = int(r["USERS"])
-                pr = float(r["PERCENT"])
-                color = COLORS["android"] if p == "Android" else COLORS["ios"] if p == "iOS" else COLORS["other"]
+  <div class="divider"></div>
 
-                st.markdown(
-                    f"""
-<div class="stat-row">
-  <div>
-    <div class="stat-left"><span class="dot" style="background:{color};"></span>
-      <span class="stat-label">{p}</span>
+  <!-- ─── KPI METRICS ───────────────────────────── -->
+  <section id="stats">
+    <div class="container">
+      <div class="metrics-header reveal">
+        <div>
+          <div class="section-label">Key Performance Indicators</div>
+          <h2 class="section-title">Player <em>Metrics</em></h2>
+          <p class="section-sub">Core engagement and growth indicators as of the latest data snapshot.</p>
+        </div>
+        <div class="metrics-date">
+          <i class="fas fa-calendar-alt" style="color:var(--amber); margin-right:6px;"></i>
+          Data snapshot: January 16, 2026
+        </div>
+      </div>
+
+      <div class="metrics-grid reveal">
+        <div class="metric-cell c-amber">
+          <div class="m-icon"><i class="fas fa-users"></i></div>
+          <div class="m-badge badge-up"><i class="fas fa-arrow-up"></i> Growing</div>
+          <div class="m-val">26,576</div>
+          <div class="m-label">Total registered players</div>
+        </div>
+        <div class="metric-cell c-teal">
+          <div class="m-icon"><i class="fas fa-user-check"></i></div>
+          <div class="m-badge badge-info">DAU</div>
+          <div class="m-val">2,873</div>
+          <div class="m-label">Average daily active users</div>
+        </div>
+        <div class="metric-cell c-rose">
+          <div class="m-icon"><i class="fas fa-user-plus"></i></div>
+          <div class="m-badge badge-up"><i class="fas fa-arrow-up"></i> Organic</div>
+          <div class="m-val">856</div>
+          <div class="m-label">Average new users per day</div>
+        </div>
+        <div class="metric-cell c-white">
+          <div class="m-icon"><i class="fas fa-calendar-week"></i></div>
+          <div class="m-badge badge-info">WAU</div>
+          <div class="m-val">7,552</div>
+          <div class="m-label">Average weekly active users</div>
+        </div>
+        <div class="metric-cell c-white">
+          <div class="m-icon"><i class="fas fa-calendar-alt"></i></div>
+          <div class="m-badge badge-info">MAU</div>
+          <div class="m-val">9,898</div>
+          <div class="m-label">Average monthly active users</div>
+        </div>
+        <div class="metric-cell c-amber">
+          <div class="m-icon"><i class="fas fa-repeat"></i></div>
+          <div class="m-badge badge-up">High</div>
+          <div class="m-val">5.17</div>
+          <div class="m-label">Sessions per DAU — strong engagement signal</div>
+        </div>
+      </div>
     </div>
-    <div class="stat-sub">{pr:.1f}%</div>
-  </div>
-  <div class="stat-right">{u:,}</div>
-</div>
-""",
-                    unsafe_allow_html=True,
-                )
+  </section>
 
-            st.markdown("</div>", unsafe_allow_html=True)
+  <div class="divider"></div>
 
-    else:
-        st.info("Ma'lumotlar mavjud emas")
-except Exception:
-    st.info("Ma'lumotlar mavjud emas")
+  <!-- ─── ABOUT ─────────────────────────────────── -->
+  <section id="about">
+    <div class="container">
+      <div class="about-grid">
+        <div class="about-visual reveal">
+          <img src="https://play-lh.googleusercontent.com/dYKBfoXcal5QTA2d82zJIpAY3jgriUlL6RyKh6UMN0H2xBxW_jTtlXvps6jT-VROhDIEQTMy66kSRHDYxVdghA" alt="Game screenshot 1">
+          <img src="https://play-lh.googleusercontent.com/sQXfQPfz0iMq6ZNfDKP3eqCP01zAdx0Ca2iH0lOdPjW1eZozXmB_dNy40STAORmOMaWaypNblD5m34dXE5lS" alt="Game screenshot 2">
+          <img src="https://play-lh.googleusercontent.com/9vozB2WkdlaDlYTCL5J04rp_4FtbPQU60ukWGyrfizs9GF98wqsn23hke4bVPL9aVJeL9nseyLeTQZpqxbU2qXU" alt="App icon">
+        </div>
+        <div class="about-text reveal reveal-delay-2">
+          <div class="section-label">Project Overview</div>
+          <h2 class="section-title">Built for <em>Uzbek</em> children</h2>
+          <p class="section-sub" style="margin-bottom:24px;">
+            Bek &amp; Lola is an interactive, curriculum-aligned educational game designed for Uzbek-speaking children aged 3–8. Players learn the Uzbek alphabet, numbers, shapes, colors, animals, and everyday skills through engaging characters and mini-games.
+          </p>
+          <p style="color:var(--muted); font-size:0.88rem; line-height:1.75; margin-bottom:32px;">
+            The game reflects local culture and language, filling a gap in Uzbek-language digital educational content. Analytics are used to track learning engagement, session quality, and user retention across the player base.
+          </p>
 
+          <div class="about-facts">
+            <div class="fact-row">
+              <div class="fact-icon" style="background:rgba(245,158,11,0.1); color:var(--amber);"><i class="fas fa-earth-asia"></i></div>
+              <div>
+                <h4>Target Market</h4>
+                <p>Uzbekistan · Uzbek-speaking diaspora · Central Asia</p>
+              </div>
+            </div>
+            <div class="fact-row">
+              <div class="fact-icon" style="background:rgba(20,184,166,0.1); color:var(--teal);"><i class="fas fa-child"></i></div>
+              <div>
+                <h4>Age Range</h4>
+                <p>Designed for children aged 3 to 8 years</p>
+              </div>
+            </div>
+            <div class="fact-row">
+              <div class="fact-icon" style="background:rgba(244,63,94,0.1); color:var(--rose);"><i class="fab fa-google-play"></i></div>
+              <div>
+                <h4>Platform</h4>
+                <p>Android · Available on Google Play Store</p>
+              </div>
+            </div>
+          </div>
 
-# ----------------------------
-# 2) New users
-# ----------------------------
-left, right = st.columns([1.35, 1], gap="large", vertical_alignment="bottom")
-with left:
-    st.markdown('<div class="sec-title">👥 Yangi foydalanuvchilar</div><div class="sec-sub">Tanlangan davr boyicha trend</div>', unsafe_allow_html=True)
-with right:
-    f1, f2 = st.columns([0.9, 1.1], gap="small")
-    with f1:
-        period_type = st.selectbox("Kesim", ["Kunlik", "Haftalik", "Oylik"], key="new_users_period")
-    with f2:
-        date_range = st.date_input(
-            "Sana oralig'i",
-            value=(datetime.now() - timedelta(days=30), datetime.now()),
-            key="new_users_date",
-        )
+          <div class="tech-stack">
+            <span class="tech-pill">Power BI</span>
+            <span class="tech-pill">Google Analytics</span>
+            <span class="tech-pill">Firebase</span>
+            <span class="tech-pill">Android</span>
+            <span class="tech-pill">Uzbek Curriculum</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-if len(date_range) == 2:
-    start_date, end_date = date_range
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
+  <div class="divider"></div>
 
-    try:
-        if period_type == "Kunlik":
-            new_users_df = run_query(f"""
-                SELECT
-                    PLAYER_START_DATE as SANA,
-                    COUNT(DISTINCT USER_ID) as YANGI_USERS
-                FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-                WHERE GAME_ID = {GAME_ID}
-                AND PLAYER_START_DATE BETWEEN '{start_str}' AND '{end_str}'
-                GROUP BY PLAYER_START_DATE
-                ORDER BY PLAYER_START_DATE
-            """)
-        elif period_type == "Haftalik":
-            new_users_df = run_query(f"""
-                SELECT
-                    DATE_TRUNC('week', PLAYER_START_DATE) as SANA,
-                    COUNT(DISTINCT USER_ID) as YANGI_USERS
-                FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-                WHERE GAME_ID = {GAME_ID}
-                AND PLAYER_START_DATE BETWEEN '{start_str}' AND '{end_str}'
-                GROUP BY DATE_TRUNC('week', PLAYER_START_DATE)
-                ORDER BY SANA
-            """)
-        else:
-            new_users_df = run_query(f"""
-                SELECT
-                    DATE_TRUNC('month', PLAYER_START_DATE) as SANA,
-                    COUNT(DISTINCT USER_ID) as YANGI_USERS
-                FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-                WHERE GAME_ID = {GAME_ID}
-                AND PLAYER_START_DATE BETWEEN '{start_str}' AND '{end_str}'
-                GROUP BY DATE_TRUNC('month', PLAYER_START_DATE)
-                ORDER BY SANA
-            """)
+  <!-- ─── POWER BI DASHBOARD ────────────────────── -->
+  <section id="dashboard">
+    <div class="container">
+      <div class="reveal">
+        <div class="section-label">Live Data</div>
+        <h2 class="section-title">Interactive <em>Dashboard</em></h2>
+        <p class="section-sub">Real-time Power BI report with detailed breakdowns of player activity, retention curves, session trends, and geographic distribution.</p>
+      </div>
 
-        if not new_users_df.empty:
-            new_users_df["SANA"] = pd.to_datetime(new_users_df["SANA"])
-            new_users_df["SANA_STR"] = new_users_df["SANA"].dt.strftime("%Y-%m-%d")
+      <div class="dashboard-wrapper reveal">
+        <div class="dashboard-topbar">
+          <div class="dot dot-r"></div>
+          <div class="dot dot-y"></div>
+          <div class="dot dot-g"></div>
+          <div class="dashboard-url">app.powerbi.com / Bek va Lola · Player Analytics</div>
+          <div class="live-badge">
+            <div class="live-dot"></div>
+            Live
+          </div>
+        </div>
+        <iframe
+          src="https://app.powerbi.com/view?r=eyJrIjoiZTBkNjY3YWYtN2ExZS00MjE2LTg4MDctZmVmYWVmZmM3M2JhIiwidCI6IjJkYzVkYmRjLWNkOWMtNGNkMi1iMmY5LTdlOTUxNTRlODBkZCIsImMiOjEwfQ%3D%3D"
+          allowfullscreen="true"
+          title="Bek & Lola Power BI Analytics Dashboard"
+        ></iframe>
+      </div>
+    </div>
+  </section>
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Jami", f"{int(new_users_df['YANGI_USERS'].sum()):,}")
-            m2.metric("Eng yuqori", f"{int(new_users_df['YANGI_USERS'].max()):,}")
-            m3.metric("O'rtacha", f"{int(round(new_users_df['YANGI_USERS'].mean(), 0)):,}")
-            
+  <div class="divider"></div>
 
-            chart = (
-                alt.Chart(new_users_df)
-                .mark_bar(color=COLORS["new_users"], cornerRadiusTopLeft=6, cornerRadiusTopRight=6, opacity=0.92)
-                .encode(
-                    x=alt.X("SANA_STR:O", title="", axis=alt.Axis(labelAngle=-30), sort=None),
-                    y=alt.Y("YANGI_USERS:Q", title=""),
-                    tooltip=[
-                        alt.Tooltip("SANA_STR:O", title="Sana"),
-                        alt.Tooltip("YANGI_USERS:Q", title="Yangi", format=","),
-                    ],
-                )
-                .properties(height=320, padding={"top": 18, "left": 8, "right": 8, "bottom": 8})
-            )
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Tanlangan davr uchun ma'lumotlar mavjud emas")
-    except Exception:
-        st.info("Ma'lumotlarni yuklashda xatolik")
+  <!-- ─── SCREENSHOTS ───────────────────────────── -->
+  <section id="screenshots">
+    <div class="container">
+      <div class="reveal">
+        <div class="section-label">Visual Preview</div>
+        <h2 class="section-title">Game <em>Screenshots</em></h2>
+        <p class="section-sub">In-game experience — the UI/UX is designed to be intuitive, colorful, and accessible for young learners.</p>
+      </div>
 
+      <div class="screenshots-row">
+        <div class="screenshot-card reveal reveal-delay-1">
+          <img src="https://play-lh.googleusercontent.com/dYKBfoXcal5QTA2d82zJIpAY3jgriUlL6RyKh6UMN0H2xBxW_jTtlXvps6jT-VROhDIEQTMy66kSRHDYxVdghA" alt="Gameplay screen 1">
+          <div class="screenshot-caption">Main game world — character navigation</div>
+        </div>
+        <div class="screenshot-card reveal reveal-delay-2">
+          <img src="https://play-lh.googleusercontent.com/sQXfQPfz0iMq6ZNfDKP3eqCP01zAdx0Ca2iH0lOdPjW1eZozXmB_dNy40STAORmOMaWaypNblD5m34dXE5lS" alt="Gameplay screen 2">
+          <div class="screenshot-caption">Learning module — alphabet & number drills</div>
+        </div>
+        <div class="screenshot-card reveal reveal-delay-3">
+          <img src="https://play-lh.googleusercontent.com/F2Z1c1HZzQgJuy_thQaQWsgGz-MZNP6fcnrrHFNuatPQpvqbvEaHNvuXqjZF0bj2o6NeEcdjZI5PcNgP5I_HqQ=w1052-h592-rw" alt="Gameplay banner">
+          <div class="screenshot-caption">Hero banner — Bek & Lola characters</div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-# ----------------------------
-# 3) Sessions
-# ----------------------------
-left, right = st.columns([1.35, 1], gap="large", vertical_alignment="bottom")
-with left:
-    st.markdown('<div class="sec-title">📈 Sessiyalar</div><div class="sec-sub">Faollik korinishi</div>', unsafe_allow_html=True)
-with right:
-    s1, s2 = st.columns([0.9, 1.1], gap="small")
-    with s1:
-        session_view = st.selectbox("Ko'rinish", ["Kunlik", "Soatlik"], key="session_view")
-    with s2:
-        if session_view == "Soatlik":
-            session_date = st.date_input("Sana", value=datetime.now(), key="session_date")
-            session_period = None
-        else:
-            session_period = st.selectbox(
-                "Davr",
-                ["So'nggi 7 kun", "So'nggi 14 kun", "So'nggi 30 kun"],
-                key="session_period",
-            )
-            session_date = None
+  <div class="divider"></div>
 
-try:
-    if session_view == "Soatlik":
-        date_str = session_date.strftime("%Y-%m-%d")
-        sessions_df = run_query(f"""
-            SELECT
-                HOUR(DATEADD(hour, 5, EVENT_TIMESTAMP)) as SOAT,
-                COUNT(*) as HODISALAR,
-                COUNT(DISTINCT USER_ID) as FOYDALANUVCHILAR
-            FROM {DB}.ACCOUNT_EVENTS
-            WHERE GAME_ID = {GAME_ID}
-            AND DATE(EVENT_TIMESTAMP) = '{date_str}'
-            GROUP BY HOUR(DATEADD(hour, 5, EVENT_TIMESTAMP))
-            ORDER BY SOAT
-        """)
+  <!-- ─── FEATURES ─────────────────────────────── -->
+  <section id="features" style="background: var(--ink-soft);">
+    <div class="container">
+      <div class="reveal">
+        <div class="section-label">Product Highlights</div>
+        <h2 class="section-title">What the game <em>teaches</em></h2>
+        <p class="section-sub">Core learning pillars that drive engagement and retention in the Bek &amp; Lola experience.</p>
+      </div>
 
-        if not sessions_df.empty:
-            sessions_df["SOAT"] = pd.to_numeric(sessions_df["SOAT"], errors="coerce").fillna(0).astype(int)
-            sessions_df["HODISALAR"] = pd.to_numeric(sessions_df["HODISALAR"], errors="coerce").fillna(0).astype(int)
-            sessions_df["FOYDALANUVCHILAR"] = pd.to_numeric(sessions_df["FOYDALANUVCHILAR"], errors="coerce").fillna(0).astype(int)
-            sessions_df["SOAT_LABEL"] = sessions_df["SOAT"].apply(lambda x: f"{x:02d}:00")
+      <div class="features-grid reveal">
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(245,158,11,0.1); color:var(--amber);">
+            <i class="fas fa-font"></i>
+          </div>
+          <h3>Uzbek Alphabet</h3>
+          <p>Interactive letter recognition, pronunciation, and writing exercises tailored to the Uzbek Latin script.</p>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(20,184,166,0.1); color:var(--teal);">
+            <i class="fas fa-calculator"></i>
+          </div>
+          <h3>Numbers &amp; Counting</h3>
+          <p>Visual counting games that build numeracy skills for children from early pre-school to first grade.</p>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(244,63,94,0.1); color:var(--rose);">
+            <i class="fas fa-paw"></i>
+          </div>
+          <h3>Animals &amp; Nature</h3>
+          <p>Illustrated quizzes and soundboards introducing animals, plants, and natural environments.</p>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(99,102,241,0.1); color:#818cf8;">
+            <i class="fas fa-shapes"></i>
+          </div>
+          <h3>Shapes &amp; Colors</h3>
+          <p>Pattern recognition and color identification games that strengthen cognitive foundational skills.</p>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(245,158,11,0.1); color:var(--amber);">
+            <i class="fas fa-house-chimney"></i>
+          </div>
+          <h3>Everyday Life Skills</h3>
+          <p>Scenarios based on daily routines — morning habits, meals, clothing — taught through story-driven play.</p>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon" style="background:rgba(20,184,166,0.1); color:var(--teal);">
+            <i class="fas fa-music"></i>
+          </div>
+          <h3>Songs &amp; Audio</h3>
+          <p>Original Uzbek-language songs and rhymes that reinforce vocabulary through auditory learning.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-            m1, m2 = st.columns(2)
-            m1.metric("Hodisalar", f"{int(sessions_df['HODISALAR'].sum()):,}")
-            m2.metric("Faol foydalanuvchilar", f"{int(sessions_df['FOYDALANUVCHILAR'].sum()):,}")
+  <div class="divider"></div>
 
-            chart = (
-                alt.Chart(sessions_df)
-                .mark_bar(color=COLORS["sessions"], cornerRadiusTopLeft=6, cornerRadiusTopRight=6, opacity=0.92)
-                .encode(
-                    x=alt.X("SOAT_LABEL:N", title="", sort=None, axis=alt.Axis(labelAngle=0)),
-                    y=alt.Y("HODISALAR:Q", title=""),
-                    tooltip=[
-                        alt.Tooltip("SOAT_LABEL:N", title="Soat"),
-                        alt.Tooltip("HODISALAR:Q", title="Hodisalar", format=","),
-                        alt.Tooltip("FOYDALANUVCHILAR:Q", title="Foydalanuvchilar", format=","),
-                    ],
-                )
-                .properties(height=320, padding={"top": 18, "left": 8, "right": 8, "bottom": 8})
-            )
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Tanlangan sana uchun ma'lumotlar mavjud emas")
-    else:
-        days_map = {"So'nggi 7 kun": 7, "So'nggi 14 kun": 14, "So'nggi 30 kun": 30}
-        days = days_map[session_period]
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+  <!-- ─── MY ROLE ───────────────────────────────── -->
+  <section id="role">
+    <div class="container">
+      <div class="reveal">
+        <div class="section-label">Portfolio Context</div>
+        <h2 class="section-title">My <em>Contribution</em></h2>
+        <p class="section-sub">This is a real commercial project I contributed to. Here's the scope of my work on the analytics and data side.</p>
+      </div>
 
-        sessions_df = run_query(f"""
-            SELECT
-                EVENT_DATE as SANA,
-                COUNT(DISTINCT SESSION_ID) as SESSIYALAR,
-                ROUND(AVG(TOTAL_TIME_MS) / 60000, 1) as ORTACHA_DAVOMIYLIK
-            FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-            WHERE GAME_ID = {GAME_ID}
-            AND EVENT_DATE BETWEEN '{start_date.strftime("%Y-%m-%d")}' AND '{end_date.strftime("%Y-%m-%d")}'
-            GROUP BY EVENT_DATE
-            ORDER BY EVENT_DATE
-        """)
+      <div class="role-section reveal">
+        <div>
+          <h3>Product &amp; <em>Data Analytics</em> Role</h3>
+          <p>
+            I designed and implemented the full analytics pipeline for Bek &amp; Lola — from event schema design and data collection through to the interactive Power BI reporting layer that gives the product team actionable insight into player behavior and game performance.
+          </p>
+        </div>
+        <div>
+          <ul class="responsibility-list">
+            <li>
+              <div class="resp-dot"></div>
+              <span>Designed the analytics event schema and integrated Firebase tracking across all game modules</span>
+            </li>
+            <li>
+              <div class="resp-dot"></div>
+              <span>Built the Power BI dashboard with real-time data connections, covering DAU/WAU/MAU, session depth, and retention cohorts</span>
+            </li>
+            <li>
+              <div class="resp-dot"></div>
+              <span>Defined KPI frameworks to measure learning engagement and feature adoption across age groups</span>
+            </li>
+            <li>
+              <div class="resp-dot"></div>
+              <span>Presented insights to the product team to inform roadmap prioritization and content updates</span>
+            </li>
+            <li>
+              <div class="resp-dot"></div>
+              <span>Collaborated with developers to instrument new features and A/B test content variations</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
 
-        if not sessions_df.empty:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Jami", f"{int(sessions_df['SESSIYALAR'].sum()):,}")
-            m2.metric("O'rtacha kunlik", f"{int(sessions_df['SESSIYALAR'].mean()):,}")
-            m3.metric("O'rtacha vaqt (daq)", f"{round(float(sessions_df['ORTACHA_DAVOMIYLIK'].mean()), 1)}")
+  <!-- ─── FOOTER ────────────────────────────────── -->
+  <div class="divider"></div>
+  <footer>
+    <div class="footer-brand">Bek &amp; <span>Lola</span></div>
+    <div class="footer-copy">© 2026 · Portfolio project · Powered by Microsoft Power BI</div>
+    <div class="footer-links">
+      <a href="https://www.youtube.com/@Bekvalola/videos" target="_blank" title="YouTube"><i class="fab fa-youtube"></i></a>
+      <a href="https://play.google.com/store/apps/details?id=com.unitedsoft.bekvalola" target="_blank" title="Google Play"><i class="fab fa-google-play"></i></a>
+      <a href="#" title="Telegram"><i class="fab fa-telegram-plane"></i></a>
+      <a href="#" title="Instagram"><i class="fab fa-instagram"></i></a>
+    </div>
+  </footer>
 
-            sessions_df["SANA"] = pd.to_datetime(sessions_df["SANA"])
-            sessions_df["SANA_STR"] = sessions_df["SANA"].dt.strftime("%Y-%m-%d")
+  <script>
+    // Nav scroll effect
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('solid', window.scrollY > 60);
+    });
 
-            chart = (
-                alt.Chart(sessions_df)
-                .mark_bar(color=COLORS["sessions"], cornerRadiusTopLeft=6, cornerRadiusTopRight=6, opacity=0.92)
-                .encode(
-                    x=alt.X("SANA_STR:O", title="", axis=alt.Axis(labelAngle=-30), sort=None),
-                    y=alt.Y("SESSIYALAR:Q", title=""),
-                    tooltip=[
-                        alt.Tooltip("SANA_STR:O", title="Sana"),
-                        alt.Tooltip("SESSIYALAR:Q", title="Sessiyalar", format=","),
-                        alt.Tooltip("ORTACHA_DAVOMIYLIK:Q", title="Daqiqa", format=".1f"),
-                    ],
-                )
-                .properties(height=320, padding={"top": 18, "left": 8, "right": 8, "bottom": 8})
-            )
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Ma'lumotlar mavjud emas")
-except Exception:
-    st.info("Ma'lumotlarni yuklashda xatolik")
+    // Scroll reveal
+    const revealEls = document.querySelectorAll('.reveal');
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    revealEls.forEach(el => io.observe(el));
 
+    // Smooth active nav on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('nav a');
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(sec => {
+        if (window.scrollY >= sec.offsetTop - 120) current = sec.id;
+      });
+      navLinks.forEach(a => {
+        a.style.color = a.getAttribute('href') === `#${current}` ? 'var(--amber)' : '';
+      });
+    });
 
-# ----------------------------
-# 4) Mini-game trend
-# ----------------------------
-left, right = st.columns([1.35, 1], gap="large", vertical_alignment="bottom")
-with left:
-    st.markdown('<div class="sec-title">🎮 Mini oyinlar trendi</div><div class="sec-sub">Tanlangan davr boyicha</div>', unsafe_allow_html=True)
-with right:
-    m1, m2 = st.columns([1.2, 1], gap="small")
-    with m1:
-        mg_date_range = st.date_input(
-            "Sana oralig'i",
-            value=(datetime.now() - timedelta(days=30), datetime.now()),
-            key="mg_date",
-        )
-    with m2:
-        try:
-            mg_list = run_query(f"""
-                SELECT DISTINCT EVENT_JSON:MiniGameName::STRING as MINI_GAME
-                FROM {DB}.ACCOUNT_EVENTS
-                WHERE GAME_ID = {GAME_ID} AND EVENT_NAME = 'playedMiniGameStatus'
-                AND EVENT_JSON:MiniGameName::STRING IS NOT NULL
-            """)
-            mg_options = ["Barchasi"] + [get_minigame_name(mg) for mg in mg_list["MINI_GAME"].tolist() if mg]
-            mg_original = {get_minigame_name(mg): mg for mg in mg_list["MINI_GAME"].tolist() if mg}
-            selected_mg = st.selectbox("Mini o'yin", mg_options, key="mg_filter")
-        except Exception:
-            selected_mg = "Barchasi"
-            mg_original = {}
+    // Counter animation for metric values
+    function animateCounter(el, target, suffix = '') {
+      const isFloat = target % 1 !== 0;
+      const duration = 1800;
+      const start = performance.now();
+      const update = (now) => {
+        const progress = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const val = eased * target;
+        el.textContent = isFloat ? val.toFixed(2) : Math.floor(val).toLocaleString() + suffix;
+        if (progress < 1) requestAnimationFrame(update);
+      };
+      requestAnimationFrame(update);
+    }
 
-if len(mg_date_range) == 2:
-    mg_start, mg_end = mg_date_range
-    mg_start_str = mg_start.strftime("%Y-%m-%d")
-    mg_end_str = mg_end.strftime("%Y-%m-%d")
-
-    try:
-        if selected_mg == "Barchasi":
-            mg_stats = run_query(f"""
-                SELECT
-                    DATE(EVENT_TIMESTAMP) as SANA,
-                    COUNT(*) as OYINLAR
-                FROM {DB}.ACCOUNT_EVENTS
-                WHERE GAME_ID = {GAME_ID}
-                AND EVENT_NAME = 'playedMiniGameStatus'
-                AND EVENT_TIMESTAMP BETWEEN '{mg_start_str}' AND '{mg_end_str}'
-                GROUP BY DATE(EVENT_TIMESTAMP)
-                ORDER BY SANA
-            """)
-        else:
-            original_name = mg_original.get(selected_mg, selected_mg)
-            mg_stats = run_query(f"""
-                SELECT
-                    DATE(EVENT_TIMESTAMP) as SANA,
-                    COUNT(*) as OYINLAR
-                FROM {DB}.ACCOUNT_EVENTS
-                WHERE GAME_ID = {GAME_ID}
-                AND EVENT_NAME = 'playedMiniGameStatus'
-                AND EVENT_JSON:MiniGameName::STRING = '{original_name}'
-                AND EVENT_TIMESTAMP BETWEEN '{mg_start_str}' AND '{mg_end_str}'
-                GROUP BY DATE(EVENT_TIMESTAMP)
-                ORDER BY SANA
-            """)
-
-        if not mg_stats.empty:
-            mg_stats["SANA"] = pd.to_datetime(mg_stats["SANA"])
-
-            # Shaded area
-            area = (
-                alt.Chart(mg_stats)
-                .mark_area(
-                    color=COLORS["minigame"],
-                    opacity=0.2,
-                    line=False
-                )
-                .encode(
-                    x=alt.X("SANA:T", title="", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-30, tickCount=10)),
-                    y=alt.Y("OYINLAR:Q", title=""),
-                )
-            )
-            
-            # Line
-            line = (
-                alt.Chart(mg_stats)
-                .mark_line(color=COLORS["minigame"], strokeWidth=2.6, opacity=0.9)
-                .encode(
-                    x=alt.X("SANA:T", title="", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-30, tickCount=10)),
-                    y=alt.Y("OYINLAR:Q", title=""),
-                    tooltip=[
-                        alt.Tooltip("SANA:T", title="Sana", format="%Y-%m-%d"),
-                        alt.Tooltip("OYINLAR:Q", title="O'yinlar", format=","),
-                    ],
-                )
-            )
-            
-            # Points
-            points = (
-                alt.Chart(mg_stats)
-                .mark_circle(size=60, color=COLORS["minigame"], opacity=0.85)
-                .encode(x="SANA:T", y="OYINLAR:Q")
-            )
-
-            st.altair_chart((area + line + points).properties(height=320, padding={"top": 18, "left": 8, "right": 8, "bottom": 8}), use_container_width=True)
-        else:
-            st.info("Tanlangan davr uchun ma'lumotlar mavjud emas")
-    except Exception:
-        st.info("Ma'lumotlarni yuklashda xatolik")
-
-
-# ----------------------------
-# 5) Top 5 mini-games
-# ----------------------------
-st.markdown(
-    """
-<div class="sec-row">
-  <div>
-    <div class="sec-title">🏆 TOP 5 mini o'yin</div>
-    <div class="sec-sub">Eng ko'p o'ynalganlar</div>
-  </div>
-  <div></div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-try:
-    top_games = run_query(f"""
-        SELECT
-            EVENT_JSON:MiniGameName::STRING as MINI_GAME,
-            COUNT(*) as OYINLAR
-        FROM {DB}.ACCOUNT_EVENTS
-        WHERE GAME_ID = {GAME_ID} AND EVENT_NAME = 'playedMiniGameStatus'
-        AND EVENT_JSON:MiniGameName::STRING IS NOT NULL
-        GROUP BY EVENT_JSON:MiniGameName::STRING
-        ORDER BY OYINLAR DESC
-        LIMIT 5
-    """)
-
-    if not top_games.empty:
-        top_games["NOMI"] = top_games["MINI_GAME"].apply(get_minigame_name)
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-
-        st.markdown('<div class="rank-card card">', unsafe_allow_html=True)
-        for i, row in top_games.reset_index(drop=True).iterrows():
-            medal = medals[i] if i < len(medals) else f"#{i+1}"
-            st.markdown(
-                f"""
-<div class="rank-row">
-  <div class="rank-badge">{medal}</div>
-  <div class="rank-name">{row["NOMI"]}</div>
-  <div class="rank-val">{int(row["OYINLAR"]):,}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        chart = (
-            alt.Chart(top_games)
-            .mark_bar(color=COLORS["purple"], cornerRadiusTopRight=8, cornerRadiusBottomRight=8, size=34, opacity=0.92)
-            .encode(
-                x=alt.X("OYINLAR:Q", title=""),
-                y=alt.Y("NOMI:N", title="", sort="-x"),
-                tooltip=[
-                    alt.Tooltip("NOMI:N", title="O'yin"),
-                    alt.Tooltip("OYINLAR:Q", title="O'ynalishlar", format=","),
-                ],
-            )
-            .properties(height=290, padding={"top": 18, "left": 8, "right": 8, "bottom": 8})
-        )
-        st.altair_chart(chart, use_container_width=True)
-    else:
-        st.info("Ma'lumotlar mavjud emas")
-except Exception:
-    st.info("Ma'lumotlarni yuklashda xatolik")
-
-
-# ----------------------------
-# 6) Retention
-# ----------------------------
-st.markdown(
-    """
-<div class="sec-row">
-  <div>
-    <div class="sec-title">🔄 Saqlanib qolish darajasi</div>
-    <div class="sec-sub">Ma'lum kundan keyin ilovaga qaytgan foydalanuvchilar foizi</div>
-  </div>
-  <div></div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-c1, c2, c3 = st.columns(3)
-
-try:
-    d1 = run_query(f"""
-        WITH first_day AS (
-            SELECT USER_ID, MIN(EVENT_DATE) as first_date
-            FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-            WHERE GAME_ID = {GAME_ID}
-            GROUP BY USER_ID
-        ),
-        returned AS (
-            SELECT f.USER_ID
-            FROM first_day f
-            JOIN {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY s
-              ON f.USER_ID = s.USER_ID
-             AND s.EVENT_DATE = DATEADD(day, 1, f.first_date)
-             AND s.GAME_ID = {GAME_ID}
-        )
-        SELECT ROUND(COUNT(DISTINCT r.USER_ID) * 100.0 / NULLIF(COUNT(DISTINCT f.USER_ID), 0), 1) as RET
-        FROM first_day f
-        LEFT JOIN returned r ON f.USER_ID = r.USER_ID
-    """)
-    c1.metric("1-kun", f"{float(d1['RET'][0] or 0.0)}%")
-except Exception:
-    c1.metric("1-kun", "N/A")
-
-try:
-    d7 = run_query(f"""
-        WITH first_day AS (
-            SELECT USER_ID, MIN(EVENT_DATE) as first_date
-            FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-            WHERE GAME_ID = {GAME_ID}
-            GROUP BY USER_ID
-        ),
-        returned AS (
-            SELECT f.USER_ID
-            FROM first_day f
-            JOIN {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY s
-              ON f.USER_ID = s.USER_ID
-             AND s.EVENT_DATE = DATEADD(day, 7, f.first_date)
-             AND s.GAME_ID = {GAME_ID}
-        )
-        SELECT ROUND(COUNT(DISTINCT r.USER_ID) * 100.0 / NULLIF(COUNT(DISTINCT f.USER_ID), 0), 1) as RET
-        FROM first_day f
-        LEFT JOIN returned r ON f.USER_ID = r.USER_ID
-    """)
-    c2.metric("7-kun", f"{float(d7['RET'][0] or 0.0)}%")
-except Exception:
-    c2.metric("7-kun", "N/A")
-
-try:
-    d30 = run_query(f"""
-        WITH first_day AS (
-            SELECT USER_ID, MIN(EVENT_DATE) as first_date
-            FROM {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY
-            WHERE GAME_ID = {GAME_ID}
-            GROUP BY USER_ID
-        ),
-        returned AS (
-            SELECT f.USER_ID
-            FROM first_day f
-            JOIN {DB}.ACCOUNT_FACT_USER_SESSIONS_DAY s
-              ON f.USER_ID = s.USER_ID
-             AND s.EVENT_DATE = DATEADD(day, 30, f.first_date)
-             AND s.GAME_ID = {GAME_ID}
-        )
-        SELECT ROUND(COUNT(DISTINCT r.USER_ID) * 100.0 / NULLIF(COUNT(DISTINCT f.USER_ID), 0), 1) as RET
-        FROM first_day f
-        LEFT JOIN returned r ON f.USER_ID = r.USER_ID
-    """)
-    c3.metric("30-kun", f"{float(d30['RET'][0] or 0.0)}%")
-except Exception:
-    c3.metric("30-kun", "N/A")
+    const metricCells = document.querySelectorAll('.metric-cell');
+    const metricObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const valEl = entry.target.querySelector('.m-val');
+          if (valEl && !valEl.dataset.animated) {
+            valEl.dataset.animated = true;
+            const raw = valEl.textContent.replace(/,/g, '');
+            const num = parseFloat(raw);
+            animateCounter(valEl, num);
+          }
+        }
+      });
+    }, { threshold: 0.5 });
+    metricCells.forEach(c => metricObserver.observe(c));
+  </script>
+</body>
+</html>
